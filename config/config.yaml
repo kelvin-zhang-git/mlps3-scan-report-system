@@ -1,0 +1,39 @@
+llm_profiles:
+  gemini_paid:
+    allowed_env_tiers: ["L1_TEST", "L3_CROSSBORDER_APPROVED"]
+    is_cross_border: true
+    fast_mapper_model: "gemini/gemini-4-hydrogen"
+    deep_reasoner_model: "gemini/gemini-4-neon"
+    proxy_env: "OUTBOUND_PROXY"
+    enable_context_caching: true
+    inject_block_none_safety: true
+  domestic_cn:
+    allowed_env_tiers: ["L1_TEST", "L2_INTERNAL", "L3_CROSSBORDER"]
+    is_cross_border: false
+    fast_mapper_model: "deepseek/deepseek-chat"
+    deep_reasoner_model: "deepseek/deepseek-reasoner"
+    enable_context_caching: false
+    inject_block_none_safety: false
+  local_vllm:
+    allowed_env_tiers: ["L1_TEST", "L2_INTERNAL", "L3_CROSSBORDER"]
+    is_cross_border: false
+    api_base: "http://127.0.0.1:8001/v1"
+    fast_mapper_model: "openai/qwen-32b-instruct"
+    deep_reasoner_model: "openai/qwen-72b-instruct"
+    enable_context_caching: false
+    inject_block_none_safety: false
+  local_rules:
+    allowed_env_tiers: ["L1_TEST", "L2_INTERNAL", "L3_CROSSBORDER"]
+    is_cross_border: false
+    fast_mapper_model: "local/rules-mapper"
+    deep_reasoner_model: "local/rules-reasoner"
+    enable_context_caching: false
+    inject_block_none_safety: false
+
+scanners:
+  nuclei_exclude_tags: ["dos", "fuzz", "intrusive", "bruteforce"]
+
+connectors:
+  defectdojo_url_env: "DEFECTDOJO_URL"
+  ciso_url_env: "CISO_ASSISTANT_URL"
+  ecloud_ak_env: "ECLOUD_ACCESS_KEY"

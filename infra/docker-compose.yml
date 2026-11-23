@@ -1,0 +1,205 @@
+# 部署在 192.168.1.250。不占用已被 Cognee 使用的 3000/8000。
+# DefectDojo 使用 8080，CISO Assistant 使用 8443，控制面由宿主机 Nginx 监听 13000。
+services:
+  nginx:
+    image: registry.defectdojo.com/defectdojo/defectdojo-nginx:latest
+    container_name: mlps-dojo-nginx
+    depends_on:
+      uwsgi:
+        condition: service_started
+    environment:
+      DD_UWSGI_HOST: uwsgi
+      DD_UWSGI_PORT: "3031"
+    ports:
+      - "8080:8080"
+    mem_limit: 256m
+    restart: unless-stopped
+
+  uwsgi:
+    image: registry.defectdojo.com/defectdojo/defectdojo-django:latest
+    container_name: mlps-dojo-uwsgi
+    depends_on:
+      initializer:
+        condition: service_completed_successfully
+    entrypoint: ["/wait-for-it.sh", "postgres:5432", "-t", "60", "--", "/entrypoint-uwsgi.sh"]
+    environment: &dojo_env
+      DD_DEBUG: "False"
+      DD_ALLOWED_HOSTS: "*"
+      DD_DATABASE_URL: postgresql://defectdojo:${DD_DATABASE_PASSWORD}@postgres:5432/defectdojo
+      DD_CELERY_BROKER_URL: redis://valkey:6379/0
+      DD_CACHE_URL: redis://valkey:6379/1
+      DD_SECRET_KEY: ${DD_SECRET_KEY}
+      DD_CREDENTIAL_AES_256_KEY: ${DD_CREDENTIAL_AES_256_KEY}
+      DD_DATABASE_READINESS_TIMEOUT: "60"
+    mem_limit: 1536m
+    restart: unless-stopped
+
+  celerybeat:
+    image: registry.defectdojo.com/defectdojo/defectdojo-django:latest
+    container_name: mlps-dojo-beat
+    depends_on:
+      initializer:
+        condition: service_completed_successfully
+    entrypoint: ["/wait-for-it.sh", "postgres:5432", "-t", "60", "--", "/entrypoint-celery-beat.sh"]
+    environment: *dojo_env
+    mem_limit: 384m
+    restart: unless-stopped
+
+  celeryworker:
+    image: registry.defectdojo.com/defectdojo/defectdojo-django:latest
+    container_name: mlps-dojo-worker
+    depends_on:
+      initializer:
+        condition: service_completed_successfully
+    entrypoint: ["/wait-for-it.sh", "postgres:5432", "-t", "60", "--", "/entrypoint-celery-worker.sh"]
+    environment: *dojo_env
+    mem_limit: 768m
+    restart: unless-stopped
+
+  initializer:
+    image: registry.defectdojo.com/defectdojo/defectdojo-django:latest
+    container_name: mlps-dojo-init
+    depends_on:
+      postgres:
+        condition: service_started
+    entrypoint: ["/wait-for-it.sh", "postgres:5432", "-t", "60", "--", "/entrypoint-initializer.sh"]
+    environment:
+      <<: *dojo_env
+      DD_ADMIN_USER: ${DD_ADMIN_USER}
+      DD_ADMIN_PASSWORD: ${DD_ADMIN_PASSWORD}
+      DD_ADMIN_MAIL: ${DD_ADMIN_MAIL}
+      DD_ADMIN_FIRST_NAME: Admin
+      DD_ADMIN_LAST_NAME: User
+      DD_INITIALIZE: "true"
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: mlps-dojo-postgres
+    environment:
+      POSTGRES_DB: defectdojo
+      POSTGRES_USER: defectdojo
+      POSTGRES_PASSWORD: ${DD_DATABASE_PASSWORD}
+    volumes:
+      - defectdojo_postgres:/var/lib/postgresql/data:Z
+    mem_limit: 512m
+    restart: unless-stopped
+
+  valkey:
+    image: valkey/valkey:8
+    container_name: mlps-dojo-valkey
+    volumes:
+      - defectdojo_redis:/data:Z
+    mem_limit: 256m
+    restart: unless-stopped
+
+  ciso-backend:
+    image: ghcr.io/intuitem/ciso-assistant-community/backend:latest
+    container_name: mlps-ciso-backend
+    environment:
+      - ALLOWED_HOSTS=ciso-backend,localhost,127.0.0.1,192.168.1.250
+      - CISO_ASSISTANT_URL=https://192.168.1.250:8443
+      - DJANGO_DEBUG=False
+      - AUTH_TOKEN_TTL=7200
+      - HOME=/tmp
+      - XDG_CACHE_HOME=/tmp/.cache
+      - XDG_CONFIG_HOME=/tmp/.config
+      - XDG_DATA_HOME=/tmp/.local/share
+      - QDRANT_URL=http://ciso-qdrant:6333
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev
+    volumes:
+      - /opt/mlps/ciso-db:/code/db:Z
+    user: "1001:1001"
+    ports:
+      - "127.0.0.1:18100:8000"
+    mem_limit: 1024m
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/', timeout=5)"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
+    restart: unless-stopped
+
+  ciso-huey:
+    image: ghcr.io/intuitem/ciso-assistant-community/backend:latest
+    container_name: mlps-ciso-huey
+    depends_on:
+      ciso-backend:
+        condition: service_healthy
+    environment:
+      - ALLOWED_HOSTS=ciso-backend,localhost,127.0.0.1
+      - CISO_ASSISTANT_URL=https://192.168.1.250:8443
+      - DJANGO_DEBUG=False
+      - HOME=/tmp
+      - QDRANT_URL=http://ciso-qdrant:6333
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev
+    volumes:
+      - /opt/mlps/ciso-db:/code/db:Z
+    user: "1001:1001"
+    entrypoint: ["/bin/sh", "-c", "python manage.py run_huey -w 2 --scheduler-interval 60"]
+    mem_limit: 384m
+    restart: unless-stopped
+
+  ciso-frontend:
+    image: ghcr.io/intuitem/ciso-assistant-community/frontend:latest
+    container_name: mlps-ciso-frontend
+    environment:
+      - PUBLIC_BACKEND_API_URL=http://ciso-backend:8000/api
+      - PUBLIC_BACKEND_API_EXPOSED_URL=https://192.168.1.250:8443/api
+      - PROTOCOL_HEADER=x-forwarded-proto
+      - HOST_HEADER=x-forwarded-host
+      - ADDRESS_HEADER=x-forwarded-for
+      - XFF_DEPTH=1
+    depends_on:
+      ciso-backend:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev
+    mem_limit: 512m
+    restart: unless-stopped
+
+  ciso-qdrant:
+    image: qdrant/qdrant:v1.19.1
+    container_name: mlps-ciso-qdrant
+    volumes:
+      - ciso_qdrant:/qdrant/storage:Z
+    mem_limit: 512m
+    restart: unless-stopped
+
+  ciso-caddy:
+    image: caddy:2.11.4
+    container_name: mlps-ciso-caddy
+    depends_on:
+      ciso-backend:
+        condition: service_healthy
+    environment:
+      - CISO_ASSISTANT_URL=https://192.168.1.250:8443
+    ports:
+      - "8443:8443"
+    volumes:
+      - ciso_caddy:/data/caddy:Z
+    command: |
+      sh -c 'cat <<EOF > Caddyfile
+      {
+        default_sni 192.168.1.250
+      }
+      https://192.168.1.250:8443, https://localhost:8443, https://127.0.0.1:8443 {
+        reverse_proxy /api/* ciso-backend:8000
+        reverse_proxy /* ciso-frontend:3000
+        tls internal
+      }
+      EOF
+      caddy run'
+    mem_limit: 128m
+    restart: unless-stopped
+
+volumes:
+  defectdojo_postgres:
+  defectdojo_redis:
+  ciso_qdrant:
+  ciso_caddy:

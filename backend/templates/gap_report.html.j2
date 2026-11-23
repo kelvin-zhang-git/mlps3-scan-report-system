@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>等保三级预评估差距与专业研判报告</title>
+  <style>
+    @page { size: A4; margin: 18mm 16mm; }
+    body { font-family: "Microsoft YaHei", "Noto Sans SC", sans-serif; color: #111827; margin: 0; line-height: 1.65; }
+    .stripe { height: 5px; background: repeating-linear-gradient(-45deg,#C8102E 0 6px,transparent 6px 12px); }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 20px 24px 40px; }
+    h1 { font-size: 22px; margin: 14px 0 6px; }
+    .eyebrow { font-family: Consolas, monospace; font-size: 11px; letter-spacing: .08em; color: #6b7280; }
+    .meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 20px; }
+    .pill { border: 1px solid #e5e7eb; border-radius: 999px; padding: 2px 10px; font-size: 12px; background: #fff; }
+    .pill.red { background: #C8102E; color: white; border-color: #C8102E; }
+    .callout { background: #f8fafc; border-left: 4px solid #C8102E; padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 12px 0 18px; }
+    .callout p { margin: 0 0 8px; }
+    .callout p:last-child { margin-bottom: 0; }
+    .kpi-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 14px 0 18px; }
+    .kpi-box { border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 12px; background: #fff; }
+    .kpi-box .label { font-size: 12px; color: #6b7280; }
+    .kpi-box .val { font-size: 20px; font-weight: 700; margin-top: 2px; }
+    h2 { font-size: 16px; border-top: 1px solid #e5e7eb; padding-top: 14px; margin-top: 22px; color: #111827; }
+    h3 { font-size: 14px; margin: 14px 0 6px; }
+    .risk-card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; background: #fff; }
+    .risk-head { font-weight: 700; margin-bottom: 6px; color: #991b1b; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 8px 0 14px; }
+    th, td { border: 1px solid #e5e7eb; padding: 6px 8px; text-align: left; vertical-align: top; }
+    th { background: #f7f8fa; font-weight: 700; }
+    .bad { color: #C8102E; font-weight: 700; }
+    pre { white-space: pre-wrap; background: #f7f8fa; border: 1px solid #e5e7eb; padding: 8px; font-size: 11px; border-radius: 6px; }
+    a { color: #C8102E; text-decoration: underline; }
+    .muted { color: #6b7280; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="stripe"></div>
+  <div class="wrap">
+    <p class="eyebrow">MLPS 3.0 GAP REPORT · {{ '受控还原版' if variant == 'restored' else '脱敏汇报版' }} · {{ job_id }}</p>
+    <h1>{{ project.name }} — 等保三级预评估差距与专业研判报告</h1>
+    <p>{{ project.summary }}</p>
+    <div class="meta">
+      <span class="pill red">{{ score.verdict_label }}</span>
+      <span class="pill">{{ project.stage_label }}</span>
+      <span class="pill">{{ project.classification }}</span>
+      <span class="pill">通道 {{ project.llm_profile }}</span>
+      {% if report_meta is defined and report_meta.assessed_at %}
+      <span class="pill">评估时间 {{ report_meta.assessed_at }}</span>
+      {% endif %}
+      {% if narrative %}
+      <span class="pill">{{ 'AI 专业研判 · ' + (narrative.model_id or '') if narrative.status == 'ai' else '规则研判' }}（提示词 v{{ narrative.prompt_version or 1 }}）</span>
+      {% endif %}
+    </div>
+    {% if report_meta is defined %}
+    <p class="muted">
+      <strong>定级说明：</strong>{{ report_meta.grade_spec }} ｜ <strong>采集视角：</strong>{{ report_meta.scanner_origin }}
+      {% if report_meta.tools_used %}<br /><strong>本轮采集工具：</strong>{{ report_meta.tools_used | join('、') }}{% endif %}
+    </p>
+    {% endif %}
+
+    {% set sections = (narrative.sections if narrative else {}) %}
+
+    <h2>一、管理层执行摘要与迎检研判</h2>
+    <div class="callout">
+      {% for para in (sections.executive_summary or score.verdict_advice or '').split('\n') if para.strip() %}
+        <p>{{ para | cve_links }}</p>
+      {% endfor %}
+    </div>
+
+    <div class="kpi-row">
+      <div class="kpi-box"><div class="label">核查完备度</div><div class="val">{{ score.completeness }}%</div><div class="muted">共 {{ score.clause_total }} 条要求</div></div>
+      <div class="kpi-box"><div class="label">加权已核查得分</div><div class="val">{{ score.weighted_checked_score if score.weighted_checked_score is defined else score.checked_score }} 分</div><div class="muted">等权 {{ score.checked_score }} 分</div></div>
+      <div class="kpi-box"><div class="label">加权全量保守得分</div><div class="val">{{ score.weighted_conservative_score if score.weighted_conservative_score is defined else score.conservative_score }} 分</div><div class="muted">等权 {{ score.conservative_score }} 分</div></div>
+      <div class="kpi-box"><div class="label">直接高风险 / 已补偿降级</div><div class="val bad">{{ score.direct_high_fail if score.direct_high_fail is defined else score.high_fail }} / {{ score.mitigated_high_count or 0 }}</div><div class="muted">高风险未关闭 {{ score.high_open }} 项{% if score.completeness < 100 %}（仅统计已判定条款）{% endif %}</div></div>
+    </div>
+    <p class="muted">条款分布（共 {{ score.clause_total }} 条）：符合 {{ score.counts.compliant }}，部分符合 {{ score.counts.partially_compliant }}，不符合 {{ score.counts.non_compliant }}，不适用 {{ score.counts.not_applicable }}，待人工 {{ score.counts.pending_manual }}，未评估 {{ score.counts.not_assessed }}。加权口径按高风险权重 3、中风险权重 2、低风险权重 1 计算。</p>
+    <p class="muted"><strong>严重度与风险口径说明：</strong>本报告同时采用三层标准口径——① 技术证据采用 5 级严重度（严重/高危/中危/低危/信息，漏洞参照 CVSS 与发行版公告）；② 第 4 章风险研判卡采用综合研判等级（高风险/中风险）；③ 等保高风险判例严格对照 T/ISEAA 001-2020 认定（经有效补偿控制降级后按中风险计扣）。</p>
+
+    <h2>二、评估范围、采集手段与边界声明</h2>
+    {% for para in (sections.scope_and_methodology or '这份材料用于等保三级预评估差距自查。正式测评报告由具备资质的机构出具。').split('\n') if para.strip() %}
+      <p>{{ para }}</p>
+    {% endfor %}
+    {% if score.object_coverage and score.object_coverage['items'] %}
+      <h3>2.1 测评对象覆盖矩阵（防止单机抽样假象）</h3>
+      <p class="muted">{{ score.object_coverage.summary }}</p>
+      <table>
+        <thead><tr><th>测评对象类别</th><th>纳管 / 实测资产</th><th>涉及条款（已决 / 总数）</th><th>覆盖状态</th><th>边界与盲区说明</th></tr></thead>
+        <tbody>
+        {% for obj in score.object_coverage['items'] %}
+          <tr>
+            <td><strong>{{ obj.object_label }}</strong></td>
+            <td>{{ obj.managed_assets }} / {{ obj.scanned_assets }}</td>
+            <td>{{ obj.decided_clauses }} / {{ obj.applicable_clauses }}</td>
+            <td class="{% if obj.status == 'unmanaged' %}bad{% endif %}">{{ obj.status_label }}</td>
+            <td>{{ obj.note }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+    <h3>2.2 本轮纳管资产对照表</h3>
+    <p class="muted">
+      {% if variant == 'restored' %}
+        说明：本报告为受控还原版（仅限内部运维与等保整改团队使用），下表已将脱敏可读代号还原为真实主机地址。
+      {% else %}
+        说明：本报告为对外脱敏汇报版，已隐藏真实内网 IP 地址；正文及附表统一采用「安全域-对象序号」可读代号（内部整改定位请查阅受控还原版）。
+      {% endif %}
+    </p>
+    <table>
+      <thead><tr><th>可读代号</th><th>测评对象类别</th><th>地址 / 占位</th><th>所属安全域</th><th>系统与用途说明</th><th>核查模式</th><th>系统编号</th></tr></thead>
+      <tbody>
+      {% for asset in assets %}
+        <tr>
+          <td><strong>{{ asset.restored_label if variant == 'restored' else (asset.masked_label or asset.asset_id) }}</strong></td>
+          <td>{{ asset.object_label or asset.object_type }}</td>
+          <td>{{ asset.host if variant == 'restored' else (asset.masked_host_placeholder or '已脱敏') }}</td>
+          <td>{{ asset.zone_label or asset.security_zone }}</td>
+          <td>{{ asset.os_label or asset.os_type }}{% if variant == 'restored' and asset.role_note_restored %}；{{ asset.role_note_restored }}{% elif asset.role_note_masked %}；{{ asset.role_note_masked }}{% endif %}</td>
+          <td>{{ asset.scan_mode_label or asset.scan_mode }}</td>
+          <td class="muted">{{ asset.asset_id }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+
+    <h2>三、各安全域核查进度与深度剖析</h2>
+    <table>
+      <thead><tr><th>安全域</th><th>条款数</th><th>核查完备度</th><th>已核查得分</th><th>待人工</th><th>未评估</th><th>高风险未关闭</th></tr></thead>
+      <tbody>
+      {% for row in score.domains %}
+        <tr>
+          <td>{{ row.domain }}</td>
+          <td>{{ row.total }}</td>
+          <td>{{ row.completeness }}%</td>
+          <td>{{ row.checked_score }} 分</td>
+          <td>{{ row.pending_manual if row.pending_manual is defined else row.pending }}</td>
+          <td>{{ row.not_assessed if row.not_assessed is defined else 0 }}</td>
+          <td class="{% if row.high_open > 0 %}bad{% endif %}">{{ row.high_open }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+
+    {% if sections.domain_insights %}
+      <h3>3.1 安全域专业研判</h3>
+      <table>
+        <thead><tr><th>安全域</th><th>当前态势</th><th>主要缺口</th><th>优先整改动作</th></tr></thead>
+        <tbody>
+        {% for item in sections.domain_insights %}
+          <tr>
+            <td><strong>{{ item.domain }}</strong></td>
+            <td>{{ item.status_summary | cve_links }}</td>
+            <td>{{ item.key_gaps | cve_links }}</td>
+            <td>{{ item.priority_action | cve_links }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+
+    <h2>四、关键高危风险与技术发现解读</h2>
+    {% if direct_high_risk_rows or mitigated_high_risk_rows %}
+      <h3>4.0 高风险判例与补偿控制评估（对照 T/ISEAA 001-2020）</h3>
+      <table>
+        <thead><tr><th>条款编号</th><th>判例性质</th><th>判例类别</th><th>适用对象</th><th>状态</th><th>判定 / 补偿控制说明</th></tr></thead>
+        <tbody>
+        {% for item in direct_high_risk_rows %}
+          <tr>
+            <td><strong>{{ item.clause_id }}</strong></td>
+            <td class="bad">直接高风险（阻断）</td>
+            <td>{{ (item.high_risk_precedent or {}).get('category') or item.control_point }}</td>
+            <td>{{ (item.applicable_object_labels or []) | join('、') }}</td>
+            <td>{{ item.status_zh }}</td>
+            <td>{{ (item.high_risk_precedent or {}).get('trigger_condition') or item.ai_rationale }}</td>
+          </tr>
+        {% endfor %}
+        {% for item in mitigated_high_risk_rows %}
+          <tr>
+            <td><strong>{{ item.clause_id }}</strong></td>
+            <td>已补偿降级</td>
+            <td>{{ (item.high_risk_precedent or {}).get('category') or item.control_point }}</td>
+            <td>{{ (item.applicable_object_labels or []) | join('、') }}</td>
+            <td>{{ item.status_zh }}</td>
+            <td>{{ item.compensation_note or '已登记有效补偿控制措施并按中风险跟踪' }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+    {% for risk in sections.critical_risk_analysis or [] %}
+      <div class="risk-card">
+        <div class="risk-head">[{{ risk.severity }}] {{ risk.risk_title }}</div>
+        {% if risk.affected_scope %}<p><strong>影响范围与依据：</strong>{{ risk.affected_scope | cve_links }}</p>{% endif %}
+        {% if risk.business_impact %}<p><strong>安全与测评影响：</strong>{{ risk.business_impact | cve_links }}</p>{% endif %}
+        {% if risk.remediation_advice %}<p><strong>整改建议：</strong>{{ risk.remediation_advice | cve_links }}</p>{% endif %}
+      </div>
+    {% endfor %}
+
+    <h3>4.1 主机、数据库与中间件安全基线汇总</h3>
+    <table>
+      <thead><tr><th>受测资产</th><th>主机基线状态</th><th>主机基线通过</th><th>主机基线未通过</th><th>数据库/中间件通过</th><th>数据库/中间件未通过</th></tr></thead>
+      <tbody>
+      {% for row in host_summary %}
+        <tr>
+          <td><strong>{{ row.asset_display or row.asset_id }}</strong></td>
+          <td class="{% if row.ssh_status == '采集失败' %}bad{% endif %}">{{ row.ssh_status or '已采集' }}</td>
+          <td>{{ row.passed }}</td>
+          <td>{{ row.failed }}</td>
+          <td>{{ row.db_mw_passed or 0 }}</td>
+          <td>{{ row.db_mw_failed or 0 }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6">这一轮还没有主机或数据库/中间件基线结果。</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% if collect_errors is defined and collect_errors %}
+      <div class="callout">
+        <p><strong>采集异常提示（局部盲区，不计入通过或基线失败）：</strong></p>
+        {% for err in collect_errors %}
+          <p>• {{ err.asset_display or err.asset_id }}（{{ err.source_tool }}）：{{ err.title }}{% if err.detail_text %} — {{ err.detail_text }}{% endif %}</p>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% if db_mw_rows %}
+      <h3>4.1.1 数据库与中间件基线核查明细（共 {{ db_mw_rows | length }} 条）</h3>
+      <table>
+        <thead><tr><th>受测资产</th><th>对象层</th><th>严重度</th><th>结果</th><th>检查项</th></tr></thead>
+        <tbody>
+        {% for row in db_mw_rows %}
+          <tr>
+            <td>{{ row.asset_display or row.asset_id }}</td>
+            <td>{{ '数据库' if row.source_tool == 'db_baseline' else '中间件' }}</td>
+            <td>{{ row.severity_zh or row.severity }}</td>
+            <td class="{% if row.evidence_type != 'BASELINE_PASS' %}bad{% endif %}">{{ '通过' if row.evidence_type == 'BASELINE_PASS' else '未通过' }}</td>
+            <td>{{ row.title }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+
+    {% if open_ports is defined and open_ports %}
+      <h3>4.1.2 开放端口与服务暴露清单（Nmap，共 {{ open_ports | length }} 项）</h3>
+      <table>
+        <thead><tr><th>受测资产</th><th>端口</th><th>识别服务与暴露说明</th></tr></thead>
+        <tbody>
+        {% for row in open_ports %}
+          <tr>
+            <td>{{ row.asset_display or row.asset_id }}</td>
+            <td><strong>{{ row.port or '—' }}</strong></td>
+            <td>{{ row.title }}{% if row.detail_text %}（{{ row.detail_text[:100] }}）{% endif %}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+
+    <h3>4.2 操作系统高危与严重漏洞（共 {{ cves | length }} 条实例{% if unique_cve_count is defined and unique_cve_count %}，去重 {{ unique_cve_count }} 个 CVE{% endif %}）</h3>
+    {% if top_vuln_pkgs is defined and top_vuln_pkgs %}
+      <p class="muted"><strong>高风险受影响软件包 Top {{ top_vuln_pkgs | length }}（按严重漏洞数与最高 CVSS 排序）：</strong></p>
+      <table>
+        <thead><tr><th>软件包名</th><th>严重级实例</th><th>高危级实例</th><th>最高 CVSS</th><th>当前已装版本</th><th>建议修复版本</th></tr></thead>
+        <tbody>
+        {% for p in top_vuln_pkgs %}
+          <tr>
+            <td><strong>{{ p.pkg_name }}</strong></td>
+            <td class="{% if p.critical > 0 %}bad{% endif %}">{{ p.critical }}</td>
+            <td>{{ p.high }}</td>
+            <td>{{ p.max_cvss if p.max_cvss > 0 else '—' }}</td>
+            <td>{{ p.installed_version or '—' }}</td>
+            <td>{{ p.fixed_version or '待上游发布' }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+    {% if cves %}
+      {% if cves | length > 60 %}
+        <p class="muted">以下按「严重度 → CVSS 分数」降序展示前 60 条重点漏洞实例；全部 {{ cves | length }} 条实例已完整同步至 DefectDojo 漏洞台账供运维批量核销。</p>
+      {% endif %}
+      <table>
+        <thead><tr><th>受测资产</th><th>受影响软件包</th><th>已装版本</th><th>修复版本</th><th>CVE 编号</th><th>CVSS</th><th>严重度</th></tr></thead>
+        <tbody>
+        {% for row in cves[:60] %}
+          <tr>
+            <td>{{ row.asset_display or row.asset_id }}</td>
+            <td>{{ (row.affected_pkgs | join(', ')) if row.affected_pkgs else (row.pkg_name or row.title) }}</td>
+            <td>{{ row.installed_version or '—' }}</td>
+            <td>{{ row.fixed_version or '暂无上游修复' }}</td>
+            <td>{% if row.cve_or_cwe %}{{ row.cve_or_cwe | cve_links }}{% else %}—{% endif %}</td>
+            <td>{{ row.cvss_score if row.cvss_score is not none else '—' }}</td>
+            <td class="{% if row.severity == 'critical' %}bad{% endif %}">{{ row.severity_zh or row.severity }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p>没有归集到高危或严重的操作系统软件包漏洞。</p>
+    {% endif %}
+
+    <h3>4.3 传输加密（TLS/HTTPS）</h3>
+    <ul>
+    {% for row in tls_rows %}
+      <li>{{ row.asset_display or row.asset_id }} · [{{ row.severity_zh or row.severity }}] {{ row.title }}</li>
+    {% else %}
+      <li>这一轮没有 HTTPS 端口的传输加密结果。</li>
+    {% endfor %}
+    </ul>
+
+    <h3>4.4 潜在攻击路径</h3>
+    {% for path in paths %}
+      <div class="risk-card">
+        <div class="risk-head">{{ path.mitigation_priority }} · {{ path.title }}</div>
+        {% if path.precondition %}<p class="muted"><strong>推演前提：</strong>{{ path.precondition }}</p>{% endif %}
+        <ol>{% for step in path.steps %}<li>{{ step | cve_links }}</li>{% endfor %}</ol>
+        {% if path.evidence_ids %}<p class="muted">支撑证据：{{ path.evidence_ids | join('、') }}</p>{% endif %}
+      </div>
+    {% endfor %}
+
+    <h2>五、分阶段整改路线图与迎检准备</h2>
+    {% if sections.remediation_roadmap %}
+      <table>
+        <thead><tr><th>阶段与周期</th><th>牵头部门</th><th>核心整改动作</th><th>复测验收标准</th></tr></thead>
+        <tbody>
+        {% for step in sections.remediation_roadmap %}
+          <tr>
+            <td><strong>{{ step.phase }}</strong></td>
+            <td>{{ step.owner_department }}</td>
+            <td><ul>{% for act in step.actions or [] %}<li>{{ act | cve_links }}</li>{% endfor %}</ul></td>
+            <td>{{ step.acceptance_criteria }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+
+    {% if sections.manual_readiness_checklist %}
+      <h3>5.1 人工核查与迎检材料准备清单</h3>
+      <ol>
+        {% for item in sections.manual_readiness_checklist %}
+          <li>{{ item }}</li>
+        {% endfor %}
+      </ol>
+    {% endif %}
+
+    <h2>六、分部门差距与加固明细</h2>
+    {% for dept in departments %}
+      <h3>{{ dept.name }}（技术差距 {{ (dept.tech_items if dept.tech_items is defined else dept['items']) | length }} 项{% if dept.manual_items is defined and dept.manual_items %} · 待人工复核 {{ dept.manual_items | length }} 项{% endif %}）</h3>
+      {% set tech_list = dept.tech_items if dept.tech_items is defined else dept['items'] %}
+      {% if tech_list %}
+        <table>
+          <thead><tr><th>优先级</th><th>条款与控制点</th><th>状态</th><th>差距说明</th></tr></thead>
+          <tbody>
+          {% for row in tech_list %}
+            <tr>
+              <td><strong>{{ row.priority }}</strong></td>
+              <td>{{ row.clause_id }} {{ row.control_point }}</td>
+              <td class="{% if row.final_status == 'non_compliant' %}bad{% endif %}">{{ row.status_zh }}</td>
+              <td>{{ row.ai_rationale | cve_links }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      {% endif %}
+      {% if dept.manual_items is defined and dept.manual_items %}
+        <p class="muted"><strong>该部门待人工线下核查条款（共 {{ dept.manual_items | length }} 条，优先级 P3）：</strong>
+          {% for row in dept.manual_items[:25] %}{{ row.clause_id }}（{{ row.control_point }}）{% if not loop.last %}、{% endif %}{% endfor %}{% if dept.manual_items | length > 25 %} 等共 {{ dept.manual_items | length }} 条（完整清单见第七章条款明细全表）。{% endif %}
+        </p>
+      {% endif %}
+    {% else %}
+      <p>当前没有需要分派的不符合、部分符合或待人工条款。</p>
+    {% endfor %}
+
+    <h2>七、条款明细全表</h2>
+    <table>
+      <thead><tr><th>条款编号</th><th>安全域 / 控制点</th><th>要求原文摘要</th><th>评定状态</th><th>核查依据与说明</th><th>关联证据 ID</th></tr></thead>
+      <tbody>
+      {% for row in assessments %}
+        <tr>
+          <td><strong>{{ row.clause_id }}</strong>{% if row.is_high_risk %}<br /><span class="bad">高风险</span>{% endif %}</td>
+          <td>{{ row.domain }}<br /><span class="muted">{{ row.control_point }}</span></td>
+          <td class="muted">{{ (row.requirement_text or '')[:110] }}{% if (row.requirement_text or '') | length > 110 %}…{% endif %}</td>
+          <td class="{% if row.final_status == 'non_compliant' %}bad{% endif %}">{{ row.status_zh }}</td>
+          <td>{{ row.ai_rationale | cve_links }}</td>
+          <td class="muted">{{ ((row.evidence_ids or [])[:5] | join(', ')) or '—' }}{% if (row.evidence_ids or []) | length > 5 %} 等{{ (row.evidence_ids or []) | length }}条{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+
+    <h2>八、技术加固参考脚本</h2>
+    <p class="muted">说明：以下脚本仅针对本轮检出的技术差距项按场景去重汇总，均含前置检查与回滚参考，执行前请在测试环境或变更窗口验证。人工管理类条款核查要点请见第五章 5.1 节与第七章。</p>
+    {% if remediation_scripts is defined and remediation_scripts %}
+      {% for item in remediation_scripts %}
+        <p><strong>{{ item.title }}</strong> <span class="muted">（关联条款：{{ item.clauses[:8] | join('、') }}{% if item.clauses | length > 8 %} 等 {{ item.clauses | length }} 条{% endif %}）</span></p>
+        <pre>{{ item.script | cve_links }}</pre>
+      {% endfor %}
+    {% else %}
+      {% for row in assessments if row.remediation_script %}
+        <p><strong>{{ row.clause_id }}</strong></p>
+        <pre>{{ row.remediation_script | cve_links }}</pre>
+      {% else %}
+        <p class="muted">本轮暂无需要生成命令行加固脚本的技术失败项。</p>
+      {% endfor %}
+    {% endif %}
+  </div>
+</body>
+</html>

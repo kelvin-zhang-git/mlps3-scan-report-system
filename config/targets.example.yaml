@@ -1,0 +1,36 @@
+project:
+  name: "等保三级扫描与差距报告"
+  summary: "对白名单内资产做只读端口、模板、软件包和主机基线核查。正式测评报告仍由具备资质的机构出具。"
+  env_tier: "L1_TEST"
+  llm_profile: "local_rules"
+  stage_label: "扫描实施"
+  classification: "测试环境"
+
+whitelist_cidrs:
+  - "10.0.0.0/24"
+
+forbidden_cidrs:
+  - "10.0.0.1/32"
+
+global_limits:
+  max_concurrency: 2
+  task_timeout_sec: 1800
+  nuclei_rate_limit: 50
+  nuclei_exclude_tags:
+    - "dos"
+    - "fuzz"
+    - "intrusive"
+    - "bruteforce"
+
+assets:
+  - asset_id: "example-linux-host-01"
+    host: "10.0.0.21"
+    security_zone: "APP"
+    os_type: "rocky_linux"
+    scan_mode: "READONLY_AUDIT"
+    ssh_config:
+      port: 22
+      user_env: "STAGE1_TARGET_SSH_USER"
+      password_env: "STAGE1_TARGET_SSH_PASSWORD"
+      key_env: "STAGE1_TARGET_SSH_KEY_PATH"
+    scanners: ["nmap", "nuclei", "trivy", "ssh_baseline"]

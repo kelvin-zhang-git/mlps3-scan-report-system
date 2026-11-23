@@ -1,0 +1,20 @@
+# 分部门整改工单 · {{ project.name }}
+
+结论：{{ score.verdict_label }}。已核查得分 {{ score.checked_score }} 分，全量保守得分 {{ score.conservative_score }} 分，核查完备度 {{ score.completeness }}%。高风险不符合 {{ score.high_fail }} 项。
+
+{{ score.verdict_advice }}
+
+{% for dept in departments %}
+## {{ dept.name }}
+
+{% for row in dept["items"] %}
+### {{ row.priority }} {{ row.clause_id }} {{ row.control_point or "" }}
+- 状态：{{ row.status_zh }}
+- 安全域：{{ row.domain }}
+- 说明：{{ row.ai_rationale | cve_links_md }}
+- 修复与验证：
+```
+{{ row.remediation_script }}
+```
+{% endfor %}
+{% endfor %}

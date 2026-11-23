@@ -1,0 +1,17 @@
+name: GB/T 22239-2019 网络安全等级保护基本要求 第三级
+version: 1
+provider: MLPS Factory
+domains:
+  - 安全物理环境
+  - 安全通信网络
+  - 安全区域边界
+  - 安全计算环境
+  - 安全管理中心
+  - 安全管理制度
+  - 安全管理机构
+  - 安全管理人员
+  - 安全建设管理
+  - 安全运维管理
+  - 云计算安全扩展
+source: config/mlps3_clauses.json
+note: 导入 CISO Assistant 前由条款 JSON 转换。每条保留 auto_level 与 high_risk，管理域默认人工核查。
